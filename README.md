@@ -1,14 +1,16 @@
-# mlx-serve — binary releases mirror
+# mlx-serve
 
-OpenAI-compatible continuous-batching server for MLX models on Apple
-Silicon.
+mlx-serve is an OpenAI-compatible server for MLX language models on Apple
+Silicon. It supports streaming chat and completions, embeddings, continuous
+batching, structured JSON output, prompt caching, multiple loaded models,
+tool/function calling, and structured reasoning extraction.
 
-This GitHub repository hosts **binary releases only** (macOS arm64,
-Developer ID signed + Apple-notarized).
+## Requirements
 
-no telemetry, no phone home
+- A Mac with Apple Silicon
+- Homebrew
 
-Install via Homebrew:
+## Install via Homebrew
 
 ```sh
 brew tap yannick/tap
@@ -16,149 +18,211 @@ brew trust yannick/tap
 brew install mlx-serve
 ```
 
+Upgrade later with `brew update && brew upgrade mlx-serve`.
 
+## Quick start
 
+```sh
+mlx-serve setup
+mlx-serve tui --config ./mlx-serve.yaml
+```
 
-━━ Quickstart
+Setup creates `./mlx-serve.yaml`, discovers compatible models in LM Studio,
+the Hugging Face cache, and `~/mlx-models`, then offers to download the small
+`mlx-community/Qwen2.5-0.5B-Instruct-4bit` test model. The default model
+directory is `~/mlx-models`.
 
-  The default config location is ./mlx-serve.yaml, relative to the directory where
-  the server is started. After installing, the interactive setup command creates
-  that file, discovers compatible models in LM Studio, the Hugging Face cache, ~/
-  mlx-models, and any --dirs paths, then offers to download the small
-  mlx-community/Qwen2.5-0.5B-Instruct-4bit test model:
+Press `s` in the TUI to start the server, or start it directly:
 
+```sh
+mlx-serve serve --config ./mlx-serve.yaml
+```
 
-  just build
-  ./bin/mlx-serve setup
-  ./bin/mlx-serve serve --config ./mlx-serve.yaml
+The API listens on `http://127.0.0.1:8080` by default. Use
+`mlx-serve setup --yes` for unattended setup or `--no-download` to create the
+config and discover existing models only.
 
+## TUI controls
 
-  Scan extra locations later with mlx-serve scan --dirs /dir/a,/dir/b; it
-  preserves existing entries and adds newly discovered checkpoints. Both commands
-  accept --config/-c when the file should live elsewhere. For unattended setup,
-  use mlx-serve setup --yes; --no-download performs discovery and config creation
-  only. The complete annotated config remains available in mlx-serve.example.yaml.
-  A new setup/scan config persists ~/mlx-models as cache.dir when no model
-  directory was supplied.
+The dashboard includes Hugging Face search, discovered models, configured
+models, editable YAML, streaming chat, and live machine/server statistics.
 
-  The download command reads cache.dir and cache.offline from the supplied config.
-  --cache-dir and --offline override those values. An 8-bit Granite checkpoint is
-  also available as mlx-community/granite-4.1-8b-8bit.
+- `1`–`5`: switch screens
+- `s`: start or gracefully stop the server
+- `/`: search Hugging Face
+- `o` / `O`: change or reverse the search sort order
+- `d` / `x`: start or stop a resumable download
+- `a`: add a discovered model to the config
+- `Space`, then `l` / `u`: load or unload selected models
+- `e`, then `Ctrl-S`: edit, validate, and save the config
+- `Enter`: send a chat message
+- `Tab`: change the loaded chat model
+- `/clear` or `Ctrl-N`: start a new chat
+- `q`: stop active work and quit
 
-  just build creates the production MLX-C release at ./bin/mlx-serve. Use just
-  release-mock to build the same path with the mock engine instead.
+## Discover and download models
 
-  ── Interactive dashboard
+```sh
+# Scan common locations.
+mlx-serve scan --config ./mlx-serve.yaml
 
-  mlx-serve tui opens a tui-rs dashboard around the configured server. It can
-  start and gracefully stop the server, search Hugging Face for MLX-tagged models,
-  show model-card descriptions plus parameter/download sizes, and download through
-  mlx-serve's checksum-verifying cache. The YAML view can be edited, validated,
-  and saved in place. A local-model view scans LM Studio, Hugging Face, the
-  configured cache, and ~/mlx-models; its add dialog writes explicit context,
-  slot, task, quantization, startup, and on-demand parameters. A configured-model
-  view can mark multiple rows, load or unload them, and shows ready models in
-  green with aligned serving-parameter and resident-memory columns; full model
-  names determine the width of the name column. A fifth view provides streaming
-  chat whenever a generation model is loaded. It sends the complete conversation
-  history on each turn, supports /clear and Ctrl-N for a new conversation, and
-  uses Tab to switch among loaded generation models. CPU, GPU, and network
-  throughput use bar time series with the newest sample on the right; request and
-  token rates remain compact gauges. The shared network scale follows standard
-  link-speed ceilings (10/100 Mbit, 1/2.5/10/25/ 100 Gbit) based on the highest
-  observed rate, with cumulative traffic alongside.
+# Include additional locations.
+mlx-serve scan --dirs /Volumes/models,/opt/models \
+  --config ./mlx-serve.yaml
 
-  When metrics.enabled: true (the default), Prometheus-format metrics are
-  available over HTTP at GET /metrics:
+# Download real Granite checkpoints.
+mlx-serve download mlx-community/granite-4.1-8b-4bit \
+  --config ./mlx-serve.yaml
+mlx-serve download mlx-community/granite-4.1-8b-8bit \
+  --config ./mlx-serve.yaml
+mlx-serve download \
+  usermma/Granite-4.1-30B-Claude-4.6-Opus-Thinking-Charles-Xavier-mlx-2Bit \
+  --config ./mlx-serve.yaml
+```
 
+`HF_TOKEN` authenticates private or gated Hugging Face downloads. Interrupted
+TUI downloads retain partial data and resume when selected again.
 
-  curl http://127.0.0.1:8080/metrics
+```sh
+mlx-serve models list --cache-dir ~/mlx-models
+mlx-serve models gc --cache-dir ~/mlx-models
+```
 
+Garbage collection is a dry run unless `--yes` is supplied.
 
+## Configuration
 
-  ./bin/mlx-serve tui --config ./mlx-serve.yaml
+Setup writes a complete configuration. A compact example is:
 
+```yaml
+server:
+  host: 127.0.0.1
+  port: 8080
+  auth_token: null
 
-  Press s to start/stop and 1–5 for Hugging Face, discovered local models,
-  configured models, YAML config, and chat. In search, o cycles the sort column, O
-  reverses it, d downloads, and x cancels while retaining resumable partial files.
-  In local models, a opens the explicit-parameter add dialog. In configured
-  models, Space marks rows and l/u loads or unloads all marked models. In config,
-  e edits and Ctrl-S validates/saves. In chat, Enter sends, Tab changes the loaded
-  model, /clear or Ctrl-N starts a new chat, Esc returns to the dashboard, and
-  Ctrl-C quits. Elsewhere, q drains the server, stops any download safely, and
-  quits.
+cache:
+  dir: ~/mlx-models
+  offline: false
 
-  Configured models have independent residency policies: load_on_start makes a
-  model ready during bootstrap, while load_on_demand permits an inference request
-  to load an unloaded model. If both are false, the model is manual-only.
-  Operators and clients can explicitly manage residency with POST /v1/models/{id}/
-  load and DELETE /v1/models/{id}/load; unloading removes the model from admission
-  immediately and drains in-flight requests before its memory is released.
+models:
+  - id: granite
+    repo: mlx-community/granite-4.1-8b-4bit
+    revision: main
+    context: 8192
+    slots: 4
+    load_on_start: true
+    load_on_demand: true
+    tool_format: json
+    reasoning_format: none
+    enable_thinking: false
 
-  ── Tool calling and reasoning
+limits:
+  max_queue_depth: 64
+  max_tokens_default: 1024
+  request_timeout_s: 300
+  prefix_cache:
+    enabled: true
+    max_entries: 256
 
-  Tool support is enabled per model because output envelopes differ between
-  families. Granite and other models that emit JSON inside <tool_call> use:
+logging:
+  level: info
+  format: json
+  request_log: true
 
+metrics:
+  enabled: true
+```
 
-  models:
-    - id: granite-thinking
-      repo: usermma/Granite-4.1-30B-Claude-4.6-Opus-Thinking-Charles-Xavier-mlx-2Bit
-      tool_format: json
-      reasoning_format: think_tags
-      enable_thinking: true
+Validate edits without starting the server:
 
+```sh
+mlx-serve config-check --config ./mlx-serve.yaml
+```
 
-  Qwen 3.5 models using nested <function>/<parameter> tags instead set
-  tool_format: qwen35. The Chat Completions endpoint accepts tools, legacy
-  functions/function_call, assistant tool_calls, and tool result messages.
-  Responses use OpenAI-compatible tool_calls with finish_reason: "tool_calls";
-  extracted reasoning is returned separately as reasoning_content in JSON and SSE
-  deltas. The server returns tool requests to the client—it never executes them.
+`load_on_start` loads a model during startup. `load_on_demand` allows an API
+request to load it when needed. Both may be enabled together. If both are
+false, load the model manually from the TUI or API.
 
-  One complete client-owned tool round trip looks like this (the second request
-  uses the returned call id and includes the full history):
+## OpenAI-compatible API
 
+The main endpoints are:
 
-  curl http://127.0.0.1:8080/v1/chat/completions \
-    -H 'content-type: application/json' \
-    -d '{
-      "model":"granite-thinking",
-      "messages":[{"role":"user","content":"Read README.md"}],
-      "tools":[{"type":"function","function":{"name":"read_file","description":"Read a UTF-8 file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]
-    }'
+- `POST /v1/chat/completions`
+- `POST /v1/completions`
+- `POST /v1/embeddings`
+- `GET /v1/models`
+- `POST /v1/models/{id}/load`
+- `DELETE /v1/models/{id}/load`
+- `GET /health/live` and `GET /health/ready`
+- `GET /metrics` when metrics are enabled
 
-  # After executing read_file for the returned call_... id:
-  curl http://127.0.0.1:8080/v1/chat/completions \
-    -H 'content-type: application/json' \
-    -d '{
-      "model":"granite-thinking",
-      "messages":[
-        {"role":"user","content":"Read README.md"},
-        {"role":"assistant","content":null,"tool_calls":[{"id":"call_...","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}}]},
-        {"role":"tool","tool_call_id":"call_...","content":"# mlx-serve ..."}
-      ],
-      "tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]
-    }'
+```sh
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{
+    "model":"granite",
+    "messages":[{"role":"user","content":"Say hello briefly."}],
+    "stream":false
+  }'
+```
 
+Set `"stream": true` for Server-Sent Events. `response_format` supports
+`json_object` and compatible `json_schema` requests for constrained JSON.
 
-  tool_choice: "auto" and "none" are supported. required, forced named tools,
-  parallel_tool_calls: false, and strict: true schemas currently return a clear
-  400 because reliably enforcing those modes requires tool-aware constrained
-  decoding.
+Multiple configured models can be resident when memory permits:
 
-  Full request/answer auditing is available to both serve and tui:
+```sh
+curl -X POST http://127.0.0.1:8080/v1/models/granite/load
+curl -X DELETE http://127.0.0.1:8080/v1/models/granite/load
+```
 
+If authentication is enabled, set `auth_token: env:MLX_SERVE_TOKEN` and send
+`Authorization: Bearer $MLX_SERVE_TOKEN` with `/v1` requests.
 
-  ./bin/mlx-serve serve --config ./mlx-serve.yaml \
-    --request-log-file ./requests.jsonl
+## Tool calling and reasoning
 
+Tool and reasoning formats are explicit per model. Granite and Qwen 2.5 use
+`tool_format: json`; Qwen 3.5 models with nested `<function>` and `<parameter>`
+tags use `tool_format: qwen35`.
 
-  Every authenticated /v1 response is appended as one JSON object containing
-  start/end Unix-millisecond timestamps, method, path, status, request, answer,
-  and explicit completion/truncation flags. Streaming answers are stored as their
-  ordered SSE JSON chunks. Captures are bounded to 1 MiB each, and a bounded
-  writer queue backpressures response completion if storage falls behind. The file
-  contains prompts and generated content, so protect it as sensitive application
-  data.
+```yaml
+models:
+  - id: granite-thinking
+    repo: usermma/Granite-4.1-30B-Claude-4.6-Opus-Thinking-Charles-Xavier-mlx-2Bit
+    load_on_start: true
+    load_on_demand: true
+    tool_format: json
+    reasoning_format: think_tags
+    enable_thinking: true
+```
+
+Chat Completions accepts `tools`, `tool_choice`, legacy `functions` and
+`function_call`, assistant `tool_calls`, and `tool` result messages. Responses
+provide stable call IDs and `finish_reason: "tool_calls"`; extracted thinking
+is returned separately as `reasoning_content` in regular and streaming output.
+
+The client executes each requested function and returns its result with the
+full chat history. `tool_choice: "auto"` and `"none"` are supported. Required
+or forced named calls, strict tool schemas, and `parallel_tool_calls: false`
+are currently rejected.
+
+## Metrics and request logging
+
+Prometheus metrics are enabled by default:
+
+```sh
+curl http://127.0.0.1:8080/metrics
+```
+
+Write complete requests and answers as one JSON object per line with:
+
+```sh
+mlx-serve serve --config ./mlx-serve.yaml \
+  --request-log-file ./requests.jsonl
+```
+
+Each record contains timestamps, request, answer, status, and completion state.
+Streaming answers are stored as ordered SSE chunks. These logs contain prompts
+and generated content, so treat them as sensitive data.
+
+Run `mlx-serve --help` or `<command> --help` for the complete CLI reference.
